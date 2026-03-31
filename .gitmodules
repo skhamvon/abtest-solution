@@ -1,0 +1,3 @@
+[submodule "abtest-campaigns-segments"]
+	path = abtest-campaigns-segments
+	url = git@github.com:skhamvon/abtest-campaigns-segments.git
