@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@abtest-solution/core": ["packages/core/src"],
+      "@abtest-solution/storage-fs": ["packages/storage-fs/src"]
+    }
+  },
+  "include": ["packages", "apps"]
+}
+
