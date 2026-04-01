@@ -1,0 +1,25 @@
+{
+  "name": "abtest-solution",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Internal A/B testing solution exposed as a federated module.",
+  "scripts": {
+    "dev:api": "npm run dev -w @abtest-solution/api",
+    "dev:remote": "npm run dev -w @abtest-solution/remote",
+    "dev:ui": "npm run dev -w @abtest-solution/ui",
+    "dev": "concurrently -n api,remote,ui -c green,magenta,cyan \"npm run dev -w @abtest-solution/api\" \"npm run dev -w @abtest-solution/remote\" \"npm run dev -w @abtest-solution/ui\"",
+    "build": "npm run build -w @abtest-solution/core && npm run build -w @abtest-solution/storage-fs && npm run build -w @abtest-solution/api && npm run build -w @abtest-solution/remote && npm run build -w @abtest-solution/ui"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
+

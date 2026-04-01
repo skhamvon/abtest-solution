@@ -1,0 +1,23 @@
+{
+  "name": "@abtest-solution/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "ts-node-esm src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@abtest-solution/core": "0.1.0",
+    "@abtest-solution/storage-fs": "0.1.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2"
+  }
+}
+
