@@ -2,9 +2,14 @@ import express from "express";
 import cors from "cors";
 import morgan from "morgan";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createEngine } from "../../../packages/core/src/index.ts";
-import type { CampaignConfig, UserContext } from "../../../packages/core/src/index.ts";
+import type {
+  CampaignConfig,
+  SegmentConfig,
+  UserContext,
+} from "../../../packages/core/src/index.ts";
 import { createFsStorage } from "../../../packages/storage-fs/src/index.ts";
 
 const app = express();
@@ -163,7 +168,24 @@ app.post("/api/evaluate", async (req, res, next) => {
       res.status(404).json({ error: "Campaign not found" });
       return;
     }
-    res.json(result);
+    // Enrichir la réponse avec des infos de ciblage pour la modale de simulation
+    const allSegments: SegmentConfig[] = await engine.listSegments();
+    const matchedSegments = await engine.evaluateSegmentsForContext(
+      context ?? {},
+    );
+    const matchedIds = new Set(matchedSegments.map((s) => s.id));
+    const campaignSegments = allSegments.filter((s) =>
+      result.campaign.segments.includes(s.id),
+    );
+
+    res.json({
+      ...result,
+      matchedSegmentIds: Array.from(matchedIds),
+      campaignSegments: campaignSegments.map((s) => ({
+        id: s.id,
+        name: s.name,
+      })),
+    });
   } catch (error) {
     next(error);
   }

@@ -1,7 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import type { EvaluatedVariation } from "@abtest-solution/core";
 
-interface EvaluateResponse extends EvaluatedVariation {}
+interface EvaluateResponse extends EvaluatedVariation {
+  matchedSegmentIds?: string[];
+  campaignSegments?: { id: string; name: string }[];
+}
+
+type DeviceKind = "mobile" | "desktop" | "tablet";
+
+function detectDevice(): DeviceKind {
+  const ua = navigator.userAgent || navigator.vendor || "";
+  if (/android|iphone|ipad|ipod|windows phone/i.test(ua)) {
+    return "mobile";
+  }
+  if (/tablet|ipad/i.test(ua)) {
+    return "tablet";
+  }
+  return "desktop";
+}
 
 async function evaluateFrontendCampaign(
   campaignId: string,
@@ -16,6 +32,7 @@ async function evaluateFrontendCampaign(
       context: {
         userId: "demo-user",
         route: window.location.pathname,
+        device: detectDevice(),
       },
       simulation: simulationVariationId ? { variationId: simulationVariationId } : null,
     }),
@@ -135,6 +152,8 @@ export function AbTestSlot() {
   }
 
   const { campaign, variation: activeVariation } = state.result;
+  const matchedSegmentIds = new Set(state.result.matchedSegmentIds ?? []);
+  const campaignSegments = state.result.campaignSegments ?? [];
 
   return (
     <div
@@ -180,6 +199,36 @@ export function AbTestSlot() {
           );
         })}
       </div>
+      {campaignSegments.length > 0 && (
+        <div style={{ marginTop: "0.5rem", borderTop: "1px solid rgba(148,163,184,0.4)", paddingTop: "0.4rem" }}>
+          <div style={{ fontWeight: 500, marginBottom: "0.25rem" }}>
+            Ciblage (session actuelle)
+          </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {campaignSegments.map((s) => {
+              const matched = matchedSegmentIds.has(s.id);
+              return (
+                <li key={s.id} style={{ fontSize: "0.75rem", marginBottom: "0.15rem" }}>
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: "0.5rem",
+                      height: "0.5rem",
+                      borderRadius: "999px",
+                      marginRight: "0.35rem",
+                      backgroundColor: matched ? "#22c55e" : "#64748b",
+                    }}
+                  />
+                  {s.name}{" "}
+                  <span style={{ opacity: 0.7 }}>
+                    ({matched ? "match" : "no match"})
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
