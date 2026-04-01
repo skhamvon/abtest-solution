@@ -11,6 +11,7 @@
   "dependencies": {
     "@abtest-solution/core": "0.1.0",
     "zod": "^3.23.8"
-  }
+  },
+  "type": "module"
 }
 

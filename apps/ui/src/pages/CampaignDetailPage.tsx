@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { CampaignConfig } from "@abtest-solution/core";
+import type { CampaignConfig, SegmentConfig } from "@abtest-solution/core";
 
 export function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -10,6 +10,7 @@ export function CampaignDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [allSegments, setAllSegments] = useState<SegmentConfig[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -17,13 +18,21 @@ export function CampaignDetailPage() {
     async function load() {
       try {
         setLoading(true);
-        const res = await fetch(`http://localhost:5002/api/campaigns/${id}`);
-        if (!res.ok) {
-          throw new Error(`Erreur API ${res.status}`);
+        const [campaignRes, segmentsRes] = await Promise.all([
+          fetch(`http://localhost:5002/api/campaigns/${id}`),
+          fetch("http://localhost:5002/api/segments"),
+        ]);
+        if (!campaignRes.ok) {
+          throw new Error(`Erreur API campagne ${campaignRes.status}`);
         }
-        const data = (await res.json()) as CampaignConfig;
+        if (!segmentsRes.ok) {
+          throw new Error(`Erreur API segments ${segmentsRes.status}`);
+        }
+        const data = (await campaignRes.json()) as CampaignConfig;
+        const segments = (await segmentsRes.json()) as SegmentConfig[];
         if (!cancelled) {
           setCampaign(data);
+          setAllSegments(segments);
         }
       } catch (e) {
         if (!cancelled) {
@@ -139,6 +148,57 @@ export function CampaignDetailPage() {
             </table>
           </section>
 
+          <section style={{ marginBottom: "1rem" }}>
+            <h3 style={{ marginBottom: "0.5rem" }}>Segments associés</h3>
+            {allSegments.length === 0 ? (
+              <p>Aucun segment disponible.</p>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "0.5rem",
+                  fontSize: "0.85rem",
+                }}
+              >
+                {allSegments.map((s) => {
+                  const checked = campaign.segments.includes(s.id);
+                  return (
+                    <label
+                      key={s.id}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.25rem",
+                        padding: "0.15rem 0.4rem",
+                        borderRadius: "999px",
+                        border: "1px solid rgba(148,163,184,0.6)",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const next = new Set(campaign.segments);
+                          if (e.target.checked) {
+                            next.add(s.id);
+                          } else {
+                            next.delete(s.id);
+                          }
+                          setCampaign({
+                            ...campaign,
+                            segments: Array.from(next),
+                          });
+                        }}
+                      />
+                      {s.name}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
           <section>
             <h3 style={{ marginBottom: "0.5rem" }}>Lien de simulation</h3>
             <p style={{ fontSize: "0.85rem" }}>
@@ -168,6 +228,7 @@ export function CampaignDetailPage() {
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({
                         status: campaign.status,
+                        segments: campaign.segments,
                         variations: campaign.variations.map((v) => ({
                           id: v.id,
                           trafficAllocation: v.trafficAllocation,

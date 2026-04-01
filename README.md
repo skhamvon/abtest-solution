@@ -65,3 +65,26 @@ npm run dev
 ```
 
 Consulte la section `scripts` des différents `package.json` dans `apps/*` pour les commandes détaillées (dev, build, test, etc.).
+
+### Variables d’environnement utiles (ports)
+
+Pour faciliter les démos (locales ou en conteneur), les ports des services principaux sont configurables via variables d’environnement :
+
+- **API** (`apps/api`) :
+
+  - Variable : `PORT`
+  - Défaut : `5002`
+  - Exemple : `PORT=8080 npm run dev --workspace apps/api`
+
+- **UI d’administration** (`apps/ui`) :
+
+  - Variable : `VITE_UI_PORT`
+  - Défaut : `5174`
+  - Exemple : `VITE_UI_PORT=3001 npm run dev --workspace apps/ui`
+
+- **Remote / module fédéré** (`apps/remote`) :
+  - Variable : `VITE_REMOTE_PORT`
+  - Défaut : `5001`
+  - Exemple : `VITE_REMOTE_PORT=5100 npm run dev --workspace apps/remote`
+
+En l’absence de ces variables, les valeurs par défaut sont utilisées. Pour une démo derrière une URL du type `http://monhost:xxxx`, il est souvent suffisant d’exposer le port interne choisi (`PORT`, `VITE_UI_PORT`, etc.) avec un mapping de port Docker ou un reverse proxy, sans modifier le code.

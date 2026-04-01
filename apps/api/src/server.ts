@@ -43,6 +43,68 @@ app.get("/api/campaigns", async (_req, res, next) => {
   }
 });
 
+app.post("/api/campaigns", async (req, res, next) => {
+  try {
+    const { id, name, type, status } = req.body as {
+      id: string;
+      name: string;
+      type: "frontend" | "backend";
+      status?: CampaignConfig["status"];
+    };
+
+    if (!id || !name || !type) {
+      res.status(400).json({ error: "id, name et type sont requis" });
+      return;
+    }
+
+    const campaignsDir = path.join(campaignsRoot, "Campaigns");
+    await fs.promises.mkdir(campaignsDir, { recursive: true });
+
+    const folderName = name.replace(/[^a-zA-Z0-9_-]+/g, "_");
+    const campaignFolder = path.join(campaignsDir, folderName);
+    const configPath = path.join(campaignFolder, "config.json");
+
+    try {
+      await fs.promises.access(configPath, fs.constants.F_OK);
+      res.status(409).json({ error: "Campaign already exists" });
+      return;
+    } catch {
+      // ok, n'existe pas
+    }
+
+    const initial: CampaignConfig = {
+      id,
+      name,
+      type,
+      status: status ?? "draft",
+      segments: [],
+      variations: [
+        {
+          id: "control",
+          name: "Original",
+          trafficAllocation: 50,
+        },
+        {
+          id: "variant-a",
+          name: "Variation A",
+          trafficAllocation: 50,
+        },
+      ],
+    };
+
+    await fs.promises.mkdir(campaignFolder, { recursive: true });
+    await fs.promises.writeFile(
+      configPath,
+      `${JSON.stringify(initial, null, 2)}\n`,
+      "utf8",
+    );
+
+    res.status(201).json(initial);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get("/api/campaigns/:id", async (req, res, next) => {
   try {
     const campaign = await engine.getCampaignById(req.params.id);
