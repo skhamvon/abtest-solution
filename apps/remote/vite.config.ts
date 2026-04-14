@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => {
         filename: "remoteEntry.js",
         exposes: {
           "./AbTestSlot": "./src/AbTestSlot.tsx",
+          "./visitorId": "./src/visitorId.ts",
         },
         shared: {
           react: { singleton: true },

@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
+    "rootDir": "src",
     "moduleResolution": "node16",
     "module": "NodeNext",
     "target": "ES2020"

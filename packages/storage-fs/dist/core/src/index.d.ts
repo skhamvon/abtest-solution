@@ -24,7 +24,6 @@ export interface SegmentCriteria {
     country?: string[];
     device?: ("desktop" | "mobile" | "tablet")[];
     loggedIn?: boolean;
-    routePrefix?: string[];
     [key: string]: unknown;
 }
 export interface SegmentConfig {
