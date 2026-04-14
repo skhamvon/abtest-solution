@@ -1,72 +1,104 @@
-export type CampaignStatus = "draft" | "running" | "paused" | "stopped";
+import {
+  getCampaignPrivacyMode,
+  hasAnalyticsConsent,
+  shouldSkipTrackingForCampaign,
+} from "./consent.js";
+import { evaluateSegmentMatch } from "./segments.js";
+import type { UserContext } from "./context.js";
+import type { AnalyticsConsentConfig, CampaignPrivacyMode } from "./consent.js";
+import type { SegmentConfig } from "./segments.js";
 
+export type CampaignStatus = "draft" | "running" | "paused" | "stopped";
 export type CampaignType = "frontend" | "backend";
 
 export interface VariationConfig {
-  id: string;
+  id: number;
   name: string;
-  trafficAllocation: number; // 0–100, total across variations should be 100
-  // For frontend campaigns
+  trafficAllocation: number;
   jsPath?: string;
   cssPath?: string;
-  // For backend campaigns
   featureFlags?: Record<string, boolean>;
-  // Optional Piano event identifiers
   pianoEventKey?: string;
 }
 
 export interface CampaignConfig {
-  id: string;
+  id: number;
   name: string;
   type: CampaignType;
+  /** `measurement` (défaut) : soumis au consentement analytics. `technical` : toujours éligible, sans tracking. */
+  privacyMode?: CampaignPrivacyMode;
   status: CampaignStatus;
   startDate?: string;
   endDate?: string;
-  segments: string[];
+  segments: number[];
   variations: VariationConfig[];
   simulationBaseUrl?: string;
+  /**
+   * Campagne `frontend` : JS/CSS chargés pour **toutes** les variations (y compris la contrôle),
+   * avant les assets propres à la variante retournée par le moteur.
+   */
+  sharedJsPath?: string;
+  sharedCssPath?: string;
 }
 
-export interface SegmentCriteria {
-  country?: string[];
-  device?: ("desktop" | "mobile" | "tablet")[];
-  loggedIn?: boolean;
-  routePrefix?: string[];
-  [key: string]: unknown;
-}
-
-export interface SegmentConfig {
-  id: string;
-  name: string;
-  description?: string;
-  criteria: SegmentCriteria;
-}
-
-export interface UserContext {
-  userId?: string;
-  country?: string;
-  device?: "desktop" | "mobile" | "tablet";
-  loggedIn?: boolean;
-  route?: string;
-  [key: string]: unknown;
-}
+export type { UserContext } from "./context.js";
+export type { AnalyticsConsentConfig, CampaignPrivacyMode } from "./consent.js";
+export {
+  getCampaignPrivacyMode,
+  hasAnalyticsConsent,
+  shouldSkipTrackingForCampaign,
+} from "./consent.js";
+export { getQueryParamFirst, safeRegexTest } from "./contextHelpers.js";
+export type {
+  SegmentRule,
+  SegmentCondition,
+  SegmentConfig,
+  SegmentConfigInput,
+  SegmentConditionBreakdownNode,
+  SegmentRuleBreakdownLeaf,
+} from "./segments.js";
+export {
+  normalizeRawSegment,
+  evaluateRule,
+  evaluateCondition,
+  evaluateSegmentMatch,
+  evaluateSegmentConditionBreakdown,
+  summarizeOneRule,
+  countSegmentLeaves,
+  summarizeSegmentRules,
+} from "./segments.js";
+export {
+  SEGMENT_ID_MIN,
+  SEGMENT_ID_MAX,
+  CAMPAIGN_ID_MIN,
+  CAMPAIGN_ID_MAX,
+  VARIATION_SLOT_MIN,
+  VARIATION_SLOT_MAX,
+  isSegmentId,
+  isCampaignId,
+  variationIdForSlot,
+  variationSlot,
+  campaignIdFromVariationId,
+  isVariationIdForCampaign,
+  parseNumericId,
+} from "./ids.js";
 
 export interface StoragePort {
   listCampaigns(): Promise<CampaignConfig[]>;
-  getCampaignById(id: string): Promise<CampaignConfig | null>;
+  getCampaignById(id: number): Promise<CampaignConfig | null>;
   listSegments(): Promise<SegmentConfig[]>;
-  getSegmentById(id: string): Promise<SegmentConfig | null>;
+  getSegmentById(id: number): Promise<SegmentConfig | null>;
 }
 
 export interface TrackingPort {
   trackExposure(input: {
-    campaignId: string;
-    variationId: string;
+    campaignId: number;
+    variationId: number;
     context: UserContext;
   }): Promise<void>;
   trackConversion(input: {
-    campaignId: string;
-    variationId: string;
+    campaignId: number;
+    variationId: number;
     eventName: string;
     context: UserContext;
   }): Promise<void>;
@@ -84,8 +116,8 @@ export const noOpTracking: TrackingPort = {
 export function createPianoTrackingAdapter(params: {
   sendEvent: (payload: {
     type: "exposure" | "conversion";
-    campaignId: string;
-    variationId: string;
+    campaignId: number;
+    variationId: number;
     eventName?: string;
     context: UserContext;
   }) => Promise<void>;
@@ -115,6 +147,7 @@ export function createPianoTrackingAdapter(params: {
 export interface EngineConfig {
   storage: StoragePort;
   tracking?: TrackingPort;
+  consentConfig?: AnalyticsConsentConfig | null;
 }
 
 export interface EvaluatedVariation {
@@ -122,10 +155,12 @@ export interface EvaluatedVariation {
   variation: VariationConfig;
   reason:
     | "by_bucket"
+    | "by_sticky_assignment"
     | "forced_simulation"
     | "campaign_not_running"
     | "no_matching_segment"
-    | "no_variation";
+    | "no_variation"
+    | "consent_required";
 }
 
 export function isCampaignActive(
@@ -135,40 +170,6 @@ export function isCampaignActive(
   if (campaign.status !== "running") return false;
   if (campaign.startDate && new Date(campaign.startDate) > now) return false;
   if (campaign.endDate && new Date(campaign.endDate) < now) return false;
-  return true;
-}
-
-export function evaluateSegmentMatch(
-  segment: SegmentConfig,
-  context: UserContext,
-): boolean {
-  const { criteria } = segment;
-
-  if (criteria.country && criteria.country.length > 0) {
-    if (!context.country || !criteria.country.includes(context.country)) {
-      return false;
-    }
-  }
-
-  if (criteria.device && criteria.device.length > 0) {
-    if (!context.device || !criteria.device.includes(context.device)) {
-      return false;
-    }
-  }
-
-  if (typeof criteria.loggedIn === "boolean") {
-    if (context.loggedIn !== criteria.loggedIn) {
-      return false;
-    }
-  }
-
-  if (criteria.routePrefix && criteria.routePrefix.length > 0) {
-    const route = context.route || "";
-    if (!criteria.routePrefix.some((prefix) => route.startsWith(prefix))) {
-      return false;
-    }
-  }
-
   return true;
 }
 
@@ -195,8 +196,38 @@ export function pickVariationByTraffic(
   return variations[variations.length - 1] ?? null;
 }
 
+/** Extrait un id de variation « sticky » du contexte (corps `/api/evaluate`, etc.). */
+export function parseAssignedVariationIdFromContext(
+  context: UserContext,
+): number | undefined {
+  const raw = context.assignedVariationId;
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === "number" && Number.isInteger(raw)) return raw;
+  if (typeof raw === "string" && /^\d+$/.test(raw.trim())) {
+    const n = Number(raw.trim());
+    if (Number.isSafeInteger(n)) return n;
+  }
+  return undefined;
+}
+
 export function createEngine(config: EngineConfig) {
-  const { storage, tracking } = config;
+  const { storage, tracking, consentConfig } = config;
+
+  async function maybeTrackExposure(input: {
+    campaign: CampaignConfig;
+    campaignId: number;
+    variationId: number;
+    context: UserContext;
+  }) {
+    if (shouldSkipTrackingForCampaign(input.campaign)) return;
+    if (tracking) {
+      await tracking.trackExposure({
+        campaignId: input.campaignId,
+        variationId: input.variationId,
+        context: input.context,
+      });
+    }
+  }
 
   async function listCampaigns() {
     return storage.listCampaigns();
@@ -206,34 +237,36 @@ export function createEngine(config: EngineConfig) {
     return storage.listSegments();
   }
 
-  async function getCampaignById(id: string) {
+  async function getCampaignById(id: number) {
     return storage.getCampaignById(id);
   }
 
-  async function getSegmentById(id: string) {
+  async function getSegmentById(id: number) {
     return storage.getSegmentById(id);
   }
 
-  async function evaluateSegmentsForContext(
-    context: UserContext,
-  ): Promise<SegmentConfig[]> {
+  async function evaluateSegmentsForContext(context: UserContext) {
     const segments = await storage.listSegments();
-    return segments.filter((segment) =>
-      evaluateSegmentMatch(segment, context),
-    );
+    return segments.filter((segment) => evaluateSegmentMatch(segment, context));
   }
 
   async function pickVariationForCampaign(options: {
-    campaignId: string;
+    campaignId: number;
     context: UserContext;
-    simulation?: { variationId?: string } | null;
-  }): Promise<EvaluatedVariation | null> {
+    simulation?: {
+      variationId?: number;
+    } | null;
+  }) {
     const { campaignId, context, simulation } = options;
     const campaign = await storage.getCampaignById(campaignId);
     if (!campaign) return null;
 
     if (!isCampaignActive(campaign) && !simulation) {
-      return { campaign, variation: campaign.variations[0]!, reason: "campaign_not_running" };
+      return {
+        campaign,
+        variation: campaign.variations[0],
+        reason: "campaign_not_running" as const,
+      };
     }
 
     const allSegments = await storage.listSegments();
@@ -249,24 +282,54 @@ export function createEngine(config: EngineConfig) {
     if (!hasMatchingSegment && !simulation) {
       return {
         campaign,
-        variation: campaign.variations[0]!,
-        reason: "no_matching_segment",
+        variation: campaign.variations[0],
+        reason: "no_matching_segment" as const,
       };
     }
 
-    if (simulation?.variationId) {
+    const measurement = getCampaignPrivacyMode(campaign) === "measurement";
+    if (
+      !simulation &&
+      measurement &&
+      !hasAnalyticsConsent(context, consentConfig ?? null)
+    ) {
+      return {
+        campaign,
+        variation: campaign.variations[0],
+        reason: "consent_required" as const,
+      };
+    }
+
+    if (simulation?.variationId !== undefined) {
       const variation = campaign.variations.find(
         (v) => v.id === simulation.variationId,
       );
       if (variation) {
-        if (tracking) {
-          await tracking.trackExposure({
-            campaignId,
-            variationId: variation.id,
-            context,
-          });
-        }
-        return { campaign, variation, reason: "forced_simulation" };
+        await maybeTrackExposure({
+          campaign,
+          campaignId,
+          variationId: variation.id,
+          context,
+        });
+        return { campaign, variation, reason: "forced_simulation" as const };
+      }
+    }
+
+    const stickyId = parseAssignedVariationIdFromContext(context);
+    if (stickyId !== undefined) {
+      const stickyVariation = campaign.variations.find((v) => v.id === stickyId);
+      if (stickyVariation) {
+        await maybeTrackExposure({
+          campaign,
+          campaignId,
+          variationId: stickyVariation.id,
+          context,
+        });
+        return {
+          campaign,
+          variation: stickyVariation,
+          reason: "by_sticky_assignment" as const,
+        };
       }
     }
 
@@ -274,20 +337,21 @@ export function createEngine(config: EngineConfig) {
     const seed = `${campaign.id}:${userId}`;
     const bucket = hashToBucket(seed);
     const variation = pickVariationByTraffic(campaign.variations, bucket);
-
     if (!variation) {
-      return { campaign, variation: campaign.variations[0]!, reason: "no_variation" };
+      return {
+        campaign,
+        variation: campaign.variations[0],
+        reason: "no_variation" as const,
+      };
     }
 
-    if (tracking) {
-      await tracking.trackExposure({
-        campaignId,
-        variationId: variation.id,
-        context,
-      });
-    }
-
-    return { campaign, variation, reason: "by_bucket" };
+    await maybeTrackExposure({
+      campaign,
+      campaignId,
+      variationId: variation.id,
+      context,
+    });
+    return { campaign, variation, reason: "by_bucket" as const };
   }
 
   return {
@@ -299,4 +363,3 @@ export function createEngine(config: EngineConfig) {
     pickVariationForCampaign,
   };
 }
-

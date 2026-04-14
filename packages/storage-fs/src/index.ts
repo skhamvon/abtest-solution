@@ -1,14 +1,29 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import { z } from "zod";
-import type {
-  CampaignConfig,
-  SegmentConfig,
-  StoragePort,
+import {
+  normalizeRawSegment,
+  CAMPAIGN_ID_MAX,
+  CAMPAIGN_ID_MIN,
+  SEGMENT_ID_MAX,
+  SEGMENT_ID_MIN,
 } from "@abtest-solution/core";
+import type { SegmentCondition } from "@abtest-solution/core";
+
+const segmentIdSchema = z
+  .number()
+  .int()
+  .min(SEGMENT_ID_MIN)
+  .max(SEGMENT_ID_MAX);
+
+const campaignIdSchema = z
+  .number()
+  .int()
+  .min(CAMPAIGN_ID_MIN)
+  .max(CAMPAIGN_ID_MAX);
 
 const variationConfigSchema = z.object({
-  id: z.string(),
+  id: z.number().int(),
   name: z.string(),
   trafficAllocation: z.number().min(0).max(100),
   jsPath: z.string().optional(),
@@ -17,40 +32,295 @@ const variationConfigSchema = z.object({
   pianoEventKey: z.string().optional(),
 });
 
-const campaignConfigSchema: z.ZodType<CampaignConfig> = z.object({
-  id: z.string(),
-  name: z.string(),
-  type: z.union([z.literal("frontend"), z.literal("backend")]),
-  status: z.union([
-    z.literal("draft"),
-    z.literal("running"),
-    z.literal("paused"),
-    z.literal("stopped"),
+const campaignConfigSchema = z
+  .object({
+    id: campaignIdSchema,
+    name: z.string(),
+    type: z.union([z.literal("frontend"), z.literal("backend")]),
+    privacyMode: z
+      .union([z.literal("measurement"), z.literal("technical")])
+      .optional(),
+    status: z.union([
+      z.literal("draft"),
+      z.literal("running"),
+      z.literal("paused"),
+      z.literal("stopped"),
+    ]),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    segments: z.array(segmentIdSchema),
+    variations: z.array(variationConfigSchema).min(1),
+    simulationBaseUrl: z.string().optional(),
+    sharedJsPath: z.string().optional(),
+    sharedCssPath: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const base = data.id * 10;
+    const maxV = base + 9;
+    const seen = new Set<number>();
+    for (let i = 0; i < data.variations.length; i += 1) {
+      const v = data.variations[i]!;
+      if (v.id < base || v.id > maxV) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Variation id ${v.id} must be between ${base} and ${maxV} (campaign ${data.id} × 10 + slot 0–9)`,
+          path: ["variations", i, "id"],
+        });
+      }
+      if (seen.has(v.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate variation id ${v.id}`,
+          path: ["variations", i, "id"],
+        });
+      }
+      seen.add(v.id);
+    }
+  });
+
+const deviceKindSchema = z.enum(["desktop", "mobile", "tablet"]);
+
+const urlRuleSchema = z.discriminatedUnion("operator", [
+  z.object({
+    type: z.literal("url"),
+    operator: z.literal("equals"),
+    value: z.string().min(1),
+    ignoreQueryString: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal("url"),
+    operator: z.literal("contains"),
+    value: z.string().min(1),
+    ignoreQueryString: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal("url"),
+    operator: z.literal("startsWith"),
+    value: z.string().min(1),
+    ignoreQueryString: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal("url"),
+    operator: z.literal("endsWith"),
+    value: z.string().min(1),
+    ignoreQueryString: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal("url"),
+    operator: z.literal("matchesRegex"),
+    value: z.string().min(1),
+    ignoreQueryString: z.boolean().optional(),
+  }),
+]);
+
+const queryParamRuleSchema = z.discriminatedUnion("operator", [
+  z.object({
+    type: z.literal("queryParam"),
+    name: z.string().min(1),
+    operator: z.literal("exists"),
+  }),
+  z.object({
+    type: z.literal("queryParam"),
+    name: z.string().min(1),
+    operator: z.literal("equals"),
+    value: z.string(),
+  }),
+  z.object({
+    type: z.literal("queryParam"),
+    name: z.string().min(1),
+    operator: z.literal("contains"),
+    value: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("queryParam"),
+    name: z.string().min(1),
+    operator: z.literal("matchesRegex"),
+    value: z.string().min(1),
+  }),
+]);
+
+const screenRuleSchema = z.discriminatedUnion("operator", [
+  z.object({
+    type: z.literal("screen"),
+    operator: z.literal("widthAtLeast"),
+    value: z.number(),
+  }),
+  z.object({
+    type: z.literal("screen"),
+    operator: z.literal("widthAtMost"),
+    value: z.number(),
+  }),
+  z.object({
+    type: z.literal("screen"),
+    operator: z.literal("heightAtLeast"),
+    value: z.number(),
+  }),
+  z.object({
+    type: z.literal("screen"),
+    operator: z.literal("heightAtMost"),
+    value: z.number(),
+  }),
+]);
+
+const cityRuleSchema = z.discriminatedUnion("operator", [
+  z.object({
+    type: z.literal("city"),
+    operator: z.literal("isAnyOf"),
+    values: z.array(z.string()).min(1),
+  }),
+  z.object({
+    type: z.literal("city"),
+    operator: z.literal("contains"),
+    value: z.string().min(1),
+  }),
+]);
+
+const browserVersionRuleSchema = z.discriminatedUnion("operator", [
+  z.object({
+    type: z.literal("browserVersion"),
+    operator: z.literal("equals"),
+    value: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("browserVersion"),
+    operator: z.literal("olderThan"),
+    value: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("browserVersion"),
+    operator: z.literal("newerThan"),
+    value: z.string().min(1),
+  }),
+]);
+
+const cookieRuleSchema = z.discriminatedUnion("operator", [
+  z.object({
+    type: z.literal("cookie"),
+    name: z.string().min(1),
+    operator: z.literal("exists"),
+  }),
+  z.object({
+    type: z.literal("cookie"),
+    name: z.string().min(1),
+    operator: z.literal("equals"),
+    value: z.string(),
+  }),
+  z.object({
+    type: z.literal("cookie"),
+    name: z.string().min(1),
+    operator: z.literal("contains"),
+    value: z.string().min(1),
+  }),
+]);
+
+const segmentLeafRuleSchema = z.union([
+  z.discriminatedUnion("type", [
+    z.object({
+      type: z.literal("country"),
+      operator: z.literal("isAnyOf"),
+      values: z.array(z.string()).min(1),
+    }),
+    z.object({
+      type: z.literal("device"),
+      operator: z.literal("isAnyOf"),
+      values: z.array(deviceKindSchema).min(1),
+    }),
+    z.object({
+      type: z.literal("loggedIn"),
+      operator: z.literal("equals"),
+      value: z.boolean(),
+    }),
+    z.object({
+      type: z.literal("region"),
+      operator: z.literal("isAnyOf"),
+      values: z.array(z.string()).min(1),
+    }),
+    z.object({
+      type: z.literal("browser"),
+      operator: z.literal("isAnyOf"),
+      values: z.array(z.string()).min(1),
+    }),
+    z.object({
+      type: z.literal("browserLanguage"),
+      operator: z.literal("isAnyOf"),
+      values: z.array(z.string()).min(1),
+    }),
+    z.object({
+      type: z.literal("customRule"),
+      ruleId: z.string().min(1),
+    }),
+    z.object({
+      type: z.literal("dom"),
+      operator: z.literal("exists"),
+      presenceKey: z.string().min(1),
+    }),
+    z.object({
+      type: z.literal("visitorType"),
+      operator: z.literal("equals"),
+      value: z.union([z.literal("new"), z.literal("returning")]),
+    }),
   ]),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  segments: z.array(z.string()),
-  variations: z.array(variationConfigSchema),
-  simulationBaseUrl: z.string().optional(),
-});
+  urlRuleSchema,
+  queryParamRuleSchema,
+  screenRuleSchema,
+  cityRuleSchema,
+  browserVersionRuleSchema,
+  cookieRuleSchema,
+]);
 
-const segmentConfigSchema: z.ZodType<SegmentConfig> = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string().optional(),
-  criteria: z.record(z.any()),
-});
+const segmentConditionSchema: z.ZodType<SegmentCondition> = z.lazy(() =>
+  z.union([
+    segmentLeafRuleSchema,
+    z.object({
+      type: z.literal("allOf"),
+      conditions: z.array(segmentConditionSchema),
+    }),
+    z.object({
+      type: z.literal("anyOf"),
+      conditions: z.array(segmentConditionSchema),
+    }),
+    z.object({
+      type: z.literal("not"),
+      condition: segmentConditionSchema,
+    }),
+  ]),
+);
 
-export interface FsStorageOptions {
-  rootDir: string;
-}
+const segmentFileRawSchema = z
+  .object({
+    id: segmentIdSchema,
+    name: z.string(),
+    description: z.string().optional(),
+    rules: z.array(segmentLeafRuleSchema).optional(),
+    condition: segmentConditionSchema.optional(),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    const hasCondition = data.condition !== undefined;
+    const hasRules = data.rules !== undefined;
+    if (hasCondition && hasRules) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Segment : utiliser soit "condition", soit "rules", pas les deux.',
+        path: ["condition"],
+      });
+    } else if (!hasCondition && !hasRules) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Segment : fournir "condition" ou "rules" (ex. "rules": [] pour tout le monde).',
+      });
+    }
+  });
 
-async function readJsonFile<T>(filePath: string): Promise<T | null> {
+async function readJsonFile(filePath: string): Promise<unknown | null> {
   try {
     const raw = await fs.readFile(filePath, "utf8");
-    return JSON.parse(raw) as T;
+    return JSON.parse(raw) as unknown;
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    const err = error as { code?: string };
+    if (err.code === "ENOENT") {
       return null;
     }
     console.error(`Error reading JSON file at ${filePath}`, error);
@@ -58,26 +328,25 @@ async function readJsonFile<T>(filePath: string): Promise<T | null> {
   }
 }
 
-async function readCampaignConfigs(rootDir: string): Promise<CampaignConfig[]> {
+async function readCampaignConfigs(rootDir: string) {
   const campaignsRoot = path.join(rootDir, "Campaigns");
   let campaignDirs: string[] = [];
   try {
     const entries = await fs.readdir(campaignsRoot, { withFileTypes: true });
     campaignDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    const err = error as { code?: string };
+    if (err.code === "ENOENT") {
       return [];
     }
     throw error;
   }
 
-  const campaigns: CampaignConfig[] = [];
-
+  const campaigns: z.infer<typeof campaignConfigSchema>[] = [];
   for (const dir of campaignDirs) {
     const configPath = path.join(campaignsRoot, dir, "config.json");
-    const rawConfig = await readJsonFile<unknown>(configPath);
+    const rawConfig = await readJsonFile(configPath);
     if (!rawConfig) continue;
-
     const parseResult = campaignConfigSchema.safeParse(rawConfig);
     if (!parseResult.success) {
       console.warn(
@@ -88,31 +357,29 @@ async function readCampaignConfigs(rootDir: string): Promise<CampaignConfig[]> {
     }
     campaigns.push(parseResult.data);
   }
-
   return campaigns;
 }
 
-async function readSegmentConfigs(rootDir: string): Promise<SegmentConfig[]> {
+async function readSegmentConfigs(rootDir: string) {
   const segmentsRoot = path.join(rootDir, "Segments");
   let segmentDirs: string[] = [];
   try {
     const entries = await fs.readdir(segmentsRoot, { withFileTypes: true });
     segmentDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    const err = error as { code?: string };
+    if (err.code === "ENOENT") {
       return [];
     }
     throw error;
   }
 
-  const segments: SegmentConfig[] = [];
-
+  const segments = [];
   for (const dir of segmentDirs) {
     const configPath = path.join(segmentsRoot, dir, "config.json");
-    const rawConfig = await readJsonFile<unknown>(configPath);
+    const rawConfig = await readJsonFile(configPath);
     if (!rawConfig) continue;
-
-    const parseResult = segmentConfigSchema.safeParse(rawConfig);
+    const parseResult = segmentFileRawSchema.safeParse(rawConfig);
     if (!parseResult.success) {
       console.warn(
         `Invalid segment config in ${configPath}:`,
@@ -120,30 +387,27 @@ async function readSegmentConfigs(rootDir: string): Promise<SegmentConfig[]> {
       );
       continue;
     }
-    segments.push(parseResult.data);
+    segments.push(normalizeRawSegment(parseResult.data));
   }
-
   return segments;
 }
 
-export function createFsStorage(options: FsStorageOptions): StoragePort {
+export function createFsStorage(options: { rootDir: string }) {
   const { rootDir } = options;
-
   return {
     async listCampaigns() {
       return readCampaignConfigs(rootDir);
     },
-    async getCampaignById(id: string) {
+    async getCampaignById(id: number) {
       const all = await readCampaignConfigs(rootDir);
       return all.find((c) => c.id === id) ?? null;
     },
     async listSegments() {
       return readSegmentConfigs(rootDir);
     },
-    async getSegmentById(id: string) {
+    async getSegmentById(id: number) {
       const all = await readSegmentConfigs(rootDir);
       return all.find((s) => s.id === id) ?? null;
     },
   };
 }
-

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { CampaignConfig } from "@abtest-solution/core";
+import { API_BASE } from "../apiBase";
 
 export function CampaignListPage() {
   const [campaigns, setCampaigns] = useState<CampaignConfig[]>([]);
@@ -20,7 +21,7 @@ export function CampaignListPage() {
     async function load() {
       try {
         setLoading(true);
-        const res = await fetch("http://localhost:5002/api/campaigns");
+        const res = await fetch(`${API_BASE}/api/campaigns`);
         if (!res.ok) {
           throw new Error(`Erreur API ${res.status}`);
         }
@@ -76,7 +77,8 @@ export function CampaignListPage() {
               onChange={(e) => setDraftName(e.target.value)}
             />
             <input
-              placeholder="ID technique"
+              placeholder="ID campagne (10000–99999)"
+              inputMode="numeric"
               value={draftId}
               onChange={(e) => setDraftId(e.target.value)}
             />
@@ -93,24 +95,26 @@ export function CampaignListPage() {
               type="button"
               className="primary-button"
               onClick={async () => {
-                if (!draftName || !draftId) {
+                const idNum = Number(draftId.trim());
+                if (!draftName || !draftId.trim()) {
                   setCreateError("Nom et ID sont requis");
+                  return;
+                }
+                if (!Number.isInteger(idNum) || idNum < 10000 || idNum > 99999) {
+                  setCreateError("L’ID campagne doit être un entier entre 10000 et 99999");
                   return;
                 }
                 try {
                   setCreateError(null);
-                  const res = await fetch(
-                    "http://localhost:5002/api/campaigns",
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        id: draftId,
-                        name: draftName,
-                        type: draftType,
-                      }),
-                    },
-                  );
+                  const res = await fetch(`${API_BASE}/api/campaigns`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      id: idNum,
+                      name: draftName,
+                      type: draftType,
+                    }),
+                  });
                   if (!res.ok) {
                     throw new Error(`Erreur API ${res.status}`);
                   }

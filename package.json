@@ -8,7 +8,9 @@
     "dev:remote": "npm run dev -w @abtest-solution/remote",
     "dev:ui": "npm run dev -w @abtest-solution/ui",
     "dev": "concurrently -n api,remote,ui -c green,magenta,cyan \"npm run dev -w @abtest-solution/api\" \"npm run dev -w @abtest-solution/remote\" \"npm run dev -w @abtest-solution/ui\"",
-    "build": "npm run build -w @abtest-solution/core && npm run build -w @abtest-solution/storage-fs && npm run build -w @abtest-solution/api && npm run build -w @abtest-solution/remote && npm run build -w @abtest-solution/ui"
+    "build": "npm run build -w @abtest-solution/core && npm run build -w @abtest-solution/storage-fs && npm run build -w @abtest-solution/api && npm run build -w @abtest-solution/remote && npm run build -w @abtest-solution/ui",
+    "scaffold:segment": "node scripts/scaffold-data.mjs segment",
+    "scaffold:campaign": "node scripts/scaffold-data.mjs campaign"
   },
   "workspaces": [
     "apps/*",

@@ -1,237 +1,164 @@
-import { useEffect, useMemo, useState } from "react";
-import type { EvaluatedVariation } from "@abtest-solution/core";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import type { CampaignConfig, VariationConfig } from "@abtest-solution/core";
+import { isCampaignId, parseNumericId } from "@abtest-solution/core";
+import { readStoredVariationId, writeStoredVariation } from "./assignmentStore";
+import { buildBrowserEvaluateContext } from "./evaluateContext";
+import { enqueueAbtestTask } from "./evaluateQueue";
+import {
+  getNavigationStoreSnapshot,
+  subscribeNavigationStore,
+} from "./navigationSync";
 
-interface EvaluateResponse extends EvaluatedVariation {
-  matchedSegmentIds?: string[];
-  campaignSegments?: { id: string; name: string }[];
+const API_BASE =
+  import.meta.env.VITE_ABTEST_API_URL ?? "http://localhost:5002";
+
+export type AbTestSlotProps = {
+  /**
+   * Valeur fournie par l'hôte (ex. `location.key` React Router) pour réévaluer en SPA
+   * lorsque l'URL pathname/search ne change pas.
+   */
+  navigationDependency?: string;
+};
+
+function queryParam(name: string): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const v = new URLSearchParams(window.location.search).get(name);
+  return v === null || v === "" ? undefined : v;
 }
 
-type DeviceKind = "mobile" | "desktop" | "tablet";
+type AssetPaths = { cssPath?: string; jsPath?: string };
 
-function detectDevice(): DeviceKind {
-  const ua = navigator.userAgent || navigator.vendor || "";
-  if (/android|iphone|ipad|ipod|windows phone/i.test(ua)) {
-    return "mobile";
-  }
-  if (/tablet|ipad/i.test(ua)) {
-    return "tablet";
-  }
-  return "desktop";
-}
-
-async function evaluateFrontendCampaign(
-  campaignId: string,
-  simulationVariationId?: string,
-): Promise<EvaluateResponse | null> {
-  const url = "http://localhost:5002/api/evaluate";
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      campaignId,
-      context: {
-        userId: "demo-user",
-        route: window.location.pathname,
-        device: detectDevice(),
-      },
-      simulation: simulationVariationId ? { variationId: simulationVariationId } : null,
-    }),
-  });
-  if (!res.ok) return null;
-  const data = (await res.json()) as EvaluateResponse;
-  return data;
-}
-
-function injectAssets(jsPath?: string, cssPath?: string) {
-  const head = document.head;
-  if (cssPath) {
+/**
+ * Injecte plusieurs couches : d'abord tous les CSS (ordre du tableau), puis tous les JS.
+ * Les scripts sont ajoutés sous `scriptParent` (souvent le slot React).
+ */
+function injectAssetLayers(
+  layers: AssetPaths[],
+  scriptParent: HTMLElement,
+): () => void {
+  const cleanups: (() => void)[] = [];
+  for (const layer of layers) {
+    if (!layer.cssPath) continue;
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = cssPath;
-    link.dataset.abtestStyle = "1";
-    head.appendChild(link);
+    link.href = layer.cssPath;
+    document.head.appendChild(link);
+    cleanups.push(() => link.remove());
   }
-  if (jsPath) {
+  for (const layer of layers) {
+    if (!layer.jsPath) continue;
     const script = document.createElement("script");
-    script.src = jsPath;
+    script.src = layer.jsPath;
     script.async = true;
-    script.dataset.abtestScript = "1";
-    head.appendChild(script);
+    scriptParent.appendChild(script);
+    cleanups.push(() => script.remove());
   }
+  return () => {
+    for (const fn of cleanups) fn();
+  };
 }
 
-function cleanupAssets() {
-  document
-    .querySelectorAll("link[data-abtest-style='1'], script[data-abtest-script='1']")
-    .forEach((el) => el.parentElement?.removeChild(el));
-}
+export default function AbTestSlot({
+  navigationDependency,
+}: AbTestSlotProps = {}) {
+  const slotRef = useRef<HTMLDivElement>(null);
+  const teardownRef = useRef<(() => void) | null>(null);
 
-export function AbTestSlot() {
-  const [state, setState] = useState<
-    | { status: "loading" }
-    | { status: "error"; message: string }
-    | { status: "ready"; result: EvaluateResponse }
-  >({ status: "loading" });
-
-  const simulationInfo = useMemo(() => {
-    const search = new URLSearchParams(window.location.search);
-    const sim = search.get("ab_simulation") === "1";
-    const campaignParam = search.get("ab_campaign_id");
-    const variationParam = search.get("ab_variation_id") || undefined;
-    const campaignId = campaignParam || "demo-frontend-campaign";
-    const enabled = sim && !!campaignParam;
-    return { enabled, variationParam, campaignId };
-  }, []);
-
-  const [simulationVariationId, setSimulationVariationId] = useState<
-    string | undefined
-  >(simulationInfo.variationParam);
+  const navKey = useSyncExternalStore(
+    subscribeNavigationStore,
+    getNavigationStoreSnapshot,
+    () => "",
+  );
+  const routeTag = `${navKey}|${navigationDependency ?? ""}`;
 
   useEffect(() => {
+    const rawCampaign = queryParam("ab_campaign_id");
+    const campaignIdParsed = rawCampaign ? parseNumericId(rawCampaign) : null;
+    if (campaignIdParsed === null || !isCampaignId(campaignIdParsed)) {
+      return;
+    }
+    const campaignId = campaignIdParsed;
+
+    if (queryParam("ab_skip") === "1") return;
+
+    const simulationFlag =
+      queryParam("ab_simulation") === "1" || queryParam("ab_force") === "1";
+    const rawVariation = queryParam("ab_variation_id");
+    const hasVariationParam = rawVariation !== undefined;
+    const forcedVariationId = hasVariationParam
+      ? parseNumericId(rawVariation)
+      : undefined;
+
+    const simulation =
+      simulationFlag || hasVariationParam
+        ? forcedVariationId !== null && forcedVariationId !== undefined
+          ? { variationId: forcedVariationId }
+          : {}
+        : null;
+
     let cancelled = false;
 
     async function run() {
-      try {
-        const result = await evaluateFrontendCampaign(
-          simulationInfo.campaignId,
-          simulationInfo.enabled ? simulationVariationId : undefined,
-        );
-        if (!result) {
-          if (!cancelled) {
-            setState({ status: "error", message: "Aucune variation trouvée" });
-          }
-          return;
-        }
-        const { variation, reason } = result;
-        cleanupAssets();
-        injectAssets(variation.jsPath, variation.cssPath);
-        console.info(
-          "[abtest-remote] Variation active",
-          {
-            campaignId: simulationInfo.campaignId,
-            variationId: variation.id,
-            variationName: variation.name,
-            reason,
-          },
-        );
-        if (!cancelled) {
-          setState({
-            status: "ready",
-            result,
-          });
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setState({
-            status: "error",
-            message: (e as Error).message,
-          });
-        }
+      const context = buildBrowserEvaluateContext();
+      const sticky = readStoredVariationId(campaignId);
+      if (sticky !== undefined) {
+        context.assignedVariationId = sticky;
       }
+
+      const res = await fetch(`${API_BASE}/api/evaluate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaignId,
+          context,
+          simulation,
+        }),
+      });
+
+      if (!res.ok || cancelled) return;
+      const data = (await res.json()) as {
+        campaign: CampaignConfig;
+        variation: VariationConfig;
+        reason: string;
+      };
+
+      if (cancelled) return;
+
+      writeStoredVariation(
+        data.campaign,
+        campaignId,
+        data.variation,
+        data.reason,
+      );
+
+      const parent = slotRef.current;
+      if (!parent) return;
+      teardownRef.current?.();
+      teardownRef.current = injectAssetLayers(
+        [
+          {
+            cssPath: data.campaign.sharedCssPath,
+            jsPath: data.campaign.sharedJsPath,
+          },
+          {
+            cssPath: data.variation.cssPath,
+            jsPath: data.variation.jsPath,
+          },
+        ],
+        parent,
+      );
     }
 
-    run();
+    enqueueAbtestTask(() => run());
+
     return () => {
       cancelled = true;
-      cleanupAssets();
+      teardownRef.current?.();
+      teardownRef.current = null;
     };
-  }, [simulationInfo.campaignId, simulationInfo.enabled, simulationVariationId]);
-
-  if (state.status === "error") {
-    return (
-      <div data-abtest-slot>
-        Erreur A/B test (voir console): {state.message}
-      </div>
-    );
-  }
-
-  // En régime nominal (et pendant le chargement), on ne rend rien de visible
-  // sauf en mode simulation où l'on affiche un petit panneau pour choisir la variation.
-  if (!simulationInfo.enabled || state.status !== "ready") {
-    return null;
-  }
-
-  const { campaign, variation: activeVariation } = state.result;
-  const matchedSegmentIds = new Set(state.result.matchedSegmentIds ?? []);
-  const campaignSegments = state.result.campaignSegments ?? [];
+  }, [routeTag]);
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: "1rem",
-        right: "1rem",
-        zIndex: 9999,
-        padding: "0.6rem 0.8rem",
-        borderRadius: "0.75rem",
-        background: "rgba(15,23,42,0.95)",
-        border: "1px solid rgba(148,163,184,0.6)",
-        color: "#e5e7eb",
-        fontSize: "0.8rem",
-        maxWidth: "260px",
-      }}
-      data-abtest-simulation-panel
-    >
-      <div style={{ marginBottom: "0.4rem", fontWeight: 600 }}>
-        Simulation A/B – {campaign.name}
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
-        {campaign.variations.map((v) => {
-          const isActive = v.id === activeVariation.id;
-          return (
-            <button
-              key={v.id}
-              type="button"
-              onClick={() => setSimulationVariationId(v.id)}
-              style={{
-                borderRadius: "999px",
-                border: "1px solid rgba(148,163,184,0.7)",
-                padding: "0.15rem 0.5rem",
-                background: isActive
-                  ? "linear-gradient(135deg,#2563eb,#7c3aed)"
-                  : "transparent",
-                color: isActive ? "#e5e7eb" : "#cbd5f5",
-                cursor: "pointer",
-              }}
-            >
-              {v.name}
-            </button>
-          );
-        })}
-      </div>
-      {campaignSegments.length > 0 && (
-        <div style={{ marginTop: "0.5rem", borderTop: "1px solid rgba(148,163,184,0.4)", paddingTop: "0.4rem" }}>
-          <div style={{ fontWeight: 500, marginBottom: "0.25rem" }}>
-            Ciblage (session actuelle)
-          </div>
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {campaignSegments.map((s) => {
-              const matched = matchedSegmentIds.has(s.id);
-              return (
-                <li key={s.id} style={{ fontSize: "0.75rem", marginBottom: "0.15rem" }}>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      width: "0.5rem",
-                      height: "0.5rem",
-                      borderRadius: "999px",
-                      marginRight: "0.35rem",
-                      backgroundColor: matched ? "#22c55e" : "#64748b",
-                    }}
-                  />
-                  {s.name}{" "}
-                  <span style={{ opacity: 0.7 }}>
-                    ({matched ? "match" : "no match"})
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-    </div>
+    <div ref={slotRef} data-abtest-slot="" style={{ display: "contents" }} />
   );
 }
-
-export default AbTestSlot;
-

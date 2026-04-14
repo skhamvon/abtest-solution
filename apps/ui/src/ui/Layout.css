@@ -138,3 +138,105 @@
   color: #e5e7eb;
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 1rem;
+}
+
+.modal-panel {
+  max-width: min(42rem, 100%);
+  max-height: min(85vh, 100%);
+  overflow: auto;
+  border-radius: 1rem;
+  border: 1px solid rgba(51, 65, 85, 0.9);
+  background: #0f172a;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+
+.modal-panel h3 {
+  margin: 0 0 1rem;
+  font-size: 1.05rem;
+}
+
+.diag-context-editor {
+  width: 100%;
+  min-height: 7rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(71, 85, 105, 0.9);
+  background: #020617;
+  color: #e5e7eb;
+  resize: vertical;
+}
+
+.diag-segment-block {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(51, 65, 85, 0.6);
+}
+
+.diag-segment-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.diag-label {
+  color: #94a3b8;
+  font-size: 0.8rem;
+  margin-right: 0.35rem;
+}
+
+.diag-rule {
+  margin: 0.35rem 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.diag-rule-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.diag-rule-meta {
+  flex: 1;
+}
+
+.diag-rule-actual {
+  margin-top: 0.15rem;
+  color: #cbd5e1;
+}
+
+.diag-group {
+  margin: 0.4rem 0;
+  border-left: 2px solid rgba(71, 85, 105, 0.7);
+  padding-left: 0.5rem;
+}
+
+.diag-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: #94a3b8;
+  margin-bottom: 0.35rem;
+}
+
+.diag-error {
+  color: #fca5a5;
+  font-size: 0.88rem;
+  margin-top: 0.5rem;
+}
+
