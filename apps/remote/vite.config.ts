@@ -35,6 +35,11 @@ export default defineConfig(({ mode }) => {
     publicDir: path.resolve(__dirname, "../../abtest-campaigns-segments"),
     server: {
       port,
+      strictPort: true,
+      cors: true,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+      },
     },
   };
 });

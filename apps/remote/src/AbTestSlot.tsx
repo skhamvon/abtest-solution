@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CampaignConfig, VariationConfig } from "@abtest-solution/core";
 import { isCampaignId, parseNumericId } from "@abtest-solution/core";
 import { readStoredVariationId, writeStoredVariation } from "./assignmentStore";
@@ -8,6 +8,7 @@ import {
   getNavigationStoreSnapshot,
   subscribeNavigationStore,
 } from "./navigationSync";
+import { SimulationLabPanel } from "./SimulationLabPanel";
 
 const API_BASE =
   import.meta.env.VITE_ABTEST_API_URL ?? "http://localhost:5002";
@@ -58,11 +59,19 @@ function injectAssetLayers(
   };
 }
 
+type SimulationLabState = {
+  campaignId: number;
+  campaign: CampaignConfig;
+  variation: VariationConfig;
+  reason: string;
+};
+
 export default function AbTestSlot({
   navigationDependency,
 }: AbTestSlotProps = {}) {
   const slotRef = useRef<HTMLDivElement>(null);
   const teardownRef = useRef<(() => void) | null>(null);
+  const [simLab, setSimLab] = useState<SimulationLabState | null>(null);
 
   const navKey = useSyncExternalStore(
     subscribeNavigationStore,
@@ -75,11 +84,15 @@ export default function AbTestSlot({
     const rawCampaign = queryParam("ab_campaign_id");
     const campaignIdParsed = rawCampaign ? parseNumericId(rawCampaign) : null;
     if (campaignIdParsed === null || !isCampaignId(campaignIdParsed)) {
+      setSimLab(null);
       return;
     }
     const campaignId = campaignIdParsed;
 
-    if (queryParam("ab_skip") === "1") return;
+    if (queryParam("ab_skip") === "1") {
+      setSimLab(null);
+      return;
+    }
 
     const simulationFlag =
       queryParam("ab_simulation") === "1" || queryParam("ab_force") === "1";
@@ -88,6 +101,8 @@ export default function AbTestSlot({
     const forcedVariationId = hasVariationParam
       ? parseNumericId(rawVariation)
       : undefined;
+
+    const simulationUiWanted = simulationFlag || hasVariationParam;
 
     const simulation =
       simulationFlag || hasVariationParam
@@ -115,7 +130,10 @@ export default function AbTestSlot({
         }),
       });
 
-      if (!res.ok || cancelled) return;
+      if (!res.ok || cancelled) {
+        if (!cancelled) setSimLab(null);
+        return;
+      }
       const data = (await res.json()) as {
         campaign: CampaignConfig;
         variation: VariationConfig;
@@ -123,6 +141,22 @@ export default function AbTestSlot({
       };
 
       if (cancelled) return;
+
+      if (data.campaign.type === "backend") {
+        setSimLab(null);
+        return;
+      }
+
+      if (simulationUiWanted) {
+        setSimLab({
+          campaignId,
+          campaign: data.campaign,
+          variation: data.variation,
+          reason: data.reason,
+        });
+      } else {
+        setSimLab(null);
+      }
 
       writeStoredVariation(
         data.campaign,
@@ -158,7 +192,26 @@ export default function AbTestSlot({
     };
   }, [routeTag]);
 
+  const rawVariationParam = queryParam("ab_variation_id");
+  const forcedFromUrl =
+    rawVariationParam !== undefined
+      ? parseNumericId(rawVariationParam)
+      : null;
+
   return (
-    <div ref={slotRef} data-abtest-slot="" style={{ display: "contents" }} />
+    <Fragment>
+      <div ref={slotRef} data-abtest-slot="" style={{ display: "contents" }} />
+      {simLab ? (
+        <SimulationLabPanel
+          apiBase={API_BASE}
+          campaignId={simLab.campaignId}
+          campaign={simLab.campaign}
+          activeVariation={simLab.variation}
+          evaluateReason={simLab.reason}
+          forcedVariationId={forcedFromUrl}
+          diagnosticsRefreshKey={routeTag}
+        />
+      ) : null}
+    </Fragment>
   );
 }

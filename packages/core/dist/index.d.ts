@@ -19,6 +19,12 @@ export interface CampaignConfig {
     /** `measurement` (défaut) : soumis au consentement analytics. `technical` : toujours éligible, sans tracking. */
     privacyMode?: CampaignPrivacyMode;
     status: CampaignStatus;
+    /** ISO 8601 — défini à la création (API) ou absent pour les anciennes fiches. */
+    createdAt?: string;
+    /** ISO 8601 — première fois que le statut devient `running` (mise en ligne). */
+    firstPublishedAt?: string;
+    /** ISO 8601 — dernière modification du statut. */
+    lastStatusChangeAt?: string;
     startDate?: string;
     endDate?: string;
     segments: number[];
@@ -30,6 +36,10 @@ export interface CampaignConfig {
      */
     sharedJsPath?: string;
     sharedCssPath?: string;
+    /** Étiquettes libres (filtrage dans l’UI) ; chaînes courtes, ex. `["lab","promo"]`. */
+    tags?: string[];
+    /** Note libre pour l’équipe (admin UI) ; absent si non renseignée. */
+    description?: string;
 }
 export type { UserContext } from "./context.js";
 export type { AnalyticsConsentConfig, CampaignPrivacyMode } from "./consent.js";

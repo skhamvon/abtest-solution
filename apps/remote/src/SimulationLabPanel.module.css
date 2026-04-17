@@ -1,0 +1,199 @@
+.wrap {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2147483000;
+  width: min(22rem, calc(100vw - 24px));
+  max-height: min(70vh, 32rem);
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #f8fafc;
+  color: #0f172a;
+  box-shadow:
+    0 12px 40px rgba(2, 6, 23, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.wrapMin {
+  max-height: none;
+  width: auto;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 12px 12px 0 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.headActions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.iconBtn {
+  border: none;
+  background: rgba(15, 23, 42, 0.06);
+  color: inherit;
+  border-radius: 8px;
+  width: 2rem;
+  height: 2rem;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.iconBtn:hover {
+  background: rgba(15, 23, 42, 0.1);
+}
+
+.body {
+  padding: 0.65rem;
+  overflow: auto;
+  flex: 1;
+}
+
+.muted {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  color: rgba(15, 23, 42, 0.55);
+}
+
+.sectionLabel {
+  margin: 0 0 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(15, 23, 42, 0.45);
+}
+
+.variations {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.varBtn {
+  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.varBtn:hover {
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.varBtnActive {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px #2563eb inset;
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.varMeta {
+  display: block;
+  font-size: 0.7rem;
+  color: rgba(15, 23, 42, 0.5);
+  margin-top: 0.15rem;
+}
+
+.segBlock {
+  margin-top: 0.5rem;
+  padding: 0.45rem;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.segHead {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.pill {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.pillOk {
+  background: #22c55e;
+}
+
+.pillKo {
+  background: #ef4444;
+}
+
+.diagRule {
+  margin: 0.25rem 0;
+  font-size: 0.75rem;
+}
+
+.diagRuleHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.diagLabel {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: rgba(15, 23, 42, 0.45);
+  margin-right: 0.25rem;
+}
+
+.diagActual {
+  margin: 0.1rem 0 0 0.9rem;
+  color: rgba(15, 23, 42, 0.75);
+}
+
+.diagGroup {
+  margin: 0.35rem 0;
+}
+
+.diagGroupTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  font-size: 0.78rem;
+  margin-bottom: 0.2rem;
+}
+
+.err {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #b91c1c;
+}
+
+.loading {
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgba(15, 23, 42, 0.55);
+}

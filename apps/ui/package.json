@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@abtest-solution/core": "0.1.0",
+    "prismjs": "^1.30.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.0"
@@ -21,4 +22,3 @@
     "vite": "^6.0.5"
   }
 }
-

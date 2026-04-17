@@ -46,6 +46,9 @@ const campaignConfigSchema = z
       z.literal("paused"),
       z.literal("stopped"),
     ]),
+    createdAt: z.string().optional(),
+    firstPublishedAt: z.string().optional(),
+    lastStatusChangeAt: z.string().optional(),
     startDate: z.string().optional(),
     endDate: z.string().optional(),
     segments: z.array(segmentIdSchema),
@@ -53,6 +56,8 @@ const campaignConfigSchema = z
     simulationBaseUrl: z.string().optional(),
     sharedJsPath: z.string().optional(),
     sharedCssPath: z.string().optional(),
+    tags: z.array(z.string().min(1).max(64)).max(32).optional(),
+    description: z.string().max(4000).optional(),
   })
   .superRefine((data, ctx) => {
     const base = data.id * 10;
