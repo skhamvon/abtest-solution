@@ -21,7 +21,11 @@ import {
   type CampaignConfig,
   type UserContext,
 } from "@abtest-solution/core";
-import { createFsStorage } from "@abtest-solution/storage-fs";
+import {
+  createFsStorage,
+  parseSegmentFileForWrite,
+  segmentValidatedToDiskJson,
+} from "@abtest-solution/storage-fs";
 
 const app = express();
 app.use(cors());
@@ -255,6 +259,52 @@ async function findCampaignConfigPath(campaignId: number): Promise<string | null
     }
   }
   return null;
+}
+
+async function findSegmentConfigPath(segmentId: number): Promise<string | null> {
+  const segmentsDir = path.join(campaignsRoot, "Segments");
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(segmentsDir, { withFileTypes: true });
+  } catch (error: unknown) {
+    const err = error as { code?: string };
+    if (err.code === "ENOENT") return null;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const candidate = path.join(segmentsDir, entry.name, "config.json");
+    try {
+      const raw = await fs.promises.readFile(candidate, "utf8");
+      const parsed = JSON.parse(raw) as { id?: number };
+      if (parsed.id === segmentId) return candidate;
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}
+
+function countCampaignsUsingSegment(
+  campaigns: CampaignConfig[],
+  segmentId: number,
+): number {
+  return campaigns.reduce(
+    (n, c) => n + (c.segments.includes(segmentId) ? 1 : 0),
+    0,
+  );
+}
+
+function buildSegmentCampaignCountMap(
+  campaigns: CampaignConfig[],
+): Map<number, number> {
+  const map = new Map<number, number>();
+  for (const c of campaigns) {
+    for (const sid of c.segments) {
+      map.set(sid, (map.get(sid) ?? 0) + 1);
+    }
+  }
+  return map;
 }
 
 const CAMPAIGN_REPO_FILE_MAX_BYTES = 2_000_000;
@@ -1195,8 +1245,177 @@ app.delete("/api/campaigns/:id", async (req, res, next) => {
 
 app.get("/api/segments", async (_req, res, next) => {
   try {
-    const segments = await engine.listSegments();
-    res.json(segments);
+    const [segments, campaigns] = await Promise.all([
+      engine.listSegments(),
+      engine.listCampaigns(),
+    ]);
+    const countMap = buildSegmentCampaignCountMap(campaigns);
+    const payload = segments.map((s) => ({
+      ...s,
+      campaignCount: countMap.get(s.id) ?? 0,
+    }));
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/segments", async (req, res, next) => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const parsed = parseSegmentFileForWrite(body);
+    if (!parsed.ok) {
+      res.status(400).json({
+        error: "Segment invalide",
+        details: parsed.error.format(),
+      });
+      return;
+    }
+    const data = parsed.data;
+    const nameTrim = typeof data.name === "string" ? data.name.trim() : "";
+    if (!nameTrim) {
+      res.status(400).json({ error: "Le nom du segment ne peut pas être vide" });
+      return;
+    }
+    if (nameTrim !== data.name) {
+      res.status(400).json({
+        error: "Le nom ne doit pas commencer ou finir par des espaces",
+      });
+      return;
+    }
+
+    const existing = await engine.getSegmentById(data.id);
+    if (existing) {
+      res.status(409).json({ error: "Un segment avec cet identifiant existe déjà" });
+      return;
+    }
+
+    const segmentsDir = path.join(campaignsRoot, "Segments");
+    await fs.promises.mkdir(segmentsDir, { recursive: true });
+    const folderName = campaignFolderSlugFromName(nameTrim);
+    const segmentFolder = path.join(segmentsDir, folderName);
+    const configPath = path.join(segmentFolder, "config.json");
+    try {
+      await fs.promises.access(configPath, fs.constants.F_OK);
+      res.status(409).json({
+        error:
+          "Un dossier segment existe déjà pour ce nom (slug). Choisissez un autre nom.",
+      });
+      return;
+    } catch {
+      // absent : ok
+    }
+
+    const toWrite = segmentValidatedToDiskJson({
+      ...data,
+      name: nameTrim,
+    });
+    await fs.promises.mkdir(segmentFolder, { recursive: true });
+    await fs.promises.writeFile(
+      configPath,
+      `${JSON.stringify(toWrite, null, 2)}\n`,
+      "utf8",
+    );
+    await rebuildEngineFromDisk();
+    const created = await engine.getSegmentById(data.id);
+    const campaigns = await engine.listCampaigns();
+    const campaignCount = countCampaignsUsingSegment(campaigns, data.id);
+    res.status(201).json(
+      created ? { ...created, campaignCount } : { ...toWrite, campaignCount },
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put("/api/segments/:id", async (req, res, next) => {
+  try {
+    const segmentId = parseSegmentIdParam(req.params.id);
+    if (segmentId === null) {
+      res.status(400).json({ error: "Invalid segment id" });
+      return;
+    }
+    const body = req.body as Record<string, unknown>;
+    const parsed = parseSegmentFileForWrite(body);
+    if (!parsed.ok) {
+      res.status(400).json({
+        error: "Segment invalide",
+        details: parsed.error.format(),
+      });
+      return;
+    }
+    const data = parsed.data;
+    if (data.id !== segmentId) {
+      res.status(400).json({
+        error: "L’identifiant du corps ne correspond pas à l’URL",
+      });
+      return;
+    }
+    const nameTrim = typeof data.name === "string" ? data.name.trim() : "";
+    if (!nameTrim) {
+      res.status(400).json({ error: "Le nom du segment ne peut pas être vide" });
+      return;
+    }
+    if (nameTrim !== data.name) {
+      res.status(400).json({
+        error: "Le nom ne doit pas commencer ou finir par des espaces",
+      });
+      return;
+    }
+
+    const configPath = await findSegmentConfigPath(segmentId);
+    if (!configPath) {
+      res.status(404).json({ error: "Segment not found" });
+      return;
+    }
+
+    const toWrite = segmentValidatedToDiskJson({
+      ...data,
+      name: nameTrim,
+    });
+    await fs.promises.writeFile(
+      configPath,
+      `${JSON.stringify(toWrite, null, 2)}\n`,
+      "utf8",
+    );
+    await rebuildEngineFromDisk();
+    const updated = await engine.getSegmentById(segmentId);
+    const campaigns = await engine.listCampaigns();
+    const campaignCount = countCampaignsUsingSegment(campaigns, segmentId);
+    if (!updated) {
+      res.status(500).json({ error: "Segment introuvable après écriture" });
+      return;
+    }
+    res.json({ ...updated, campaignCount });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/segments/:id", async (req, res, next) => {
+  try {
+    const segmentId = parseSegmentIdParam(req.params.id);
+    if (segmentId === null) {
+      res.status(400).json({ error: "Invalid segment id" });
+      return;
+    }
+    const campaigns = await engine.listCampaigns();
+    const n = countCampaignsUsingSegment(campaigns, segmentId);
+    if (n > 0) {
+      res.status(409).json({
+        error: `Impossible de supprimer : le segment est encore utilisé par ${n} campagne(s).`,
+      });
+      return;
+    }
+    const configPath = await findSegmentConfigPath(segmentId);
+    if (!configPath) {
+      res.status(404).json({ error: "Segment not found" });
+      return;
+    }
+    const segmentDir = path.dirname(configPath);
+    await fs.promises.rm(segmentDir, { recursive: true, force: true });
+    await rebuildEngineFromDisk();
+    res.sendStatus(204);
   } catch (error) {
     next(error);
   }
@@ -1214,7 +1433,9 @@ app.get("/api/segments/:id", async (req, res, next) => {
       res.status(404).json({ error: "Segment not found" });
       return;
     }
-    res.json(segment);
+    const campaigns = await engine.listCampaigns();
+    const campaignCount = countCampaignsUsingSegment(campaigns, segmentId);
+    res.json({ ...segment, campaignCount });
   } catch (error) {
     next(error);
   }

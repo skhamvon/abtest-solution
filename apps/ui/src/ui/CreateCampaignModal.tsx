@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CAMPAIGN_ID_MAX,
   CAMPAIGN_ID_MIN,
@@ -55,6 +55,22 @@ export function CreateCampaignModal({
     useState<CampaignPrivacyMode>("measurement");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paramsView, setParamsView] = useState<"visual" | "json">("visual");
+
+  const draftJson = useMemo(() => {
+    const idNum = Number(idStr.trim());
+    const idOk =
+      Number.isInteger(idNum) &&
+      idNum >= CAMPAIGN_ID_MIN &&
+      idNum <= CAMPAIGN_ID_MAX;
+    const o: Record<string, unknown> = {
+      id: idOk ? idNum : idStr.trim() || null,
+      name: name.trim() || "",
+      type,
+      privacyMode,
+    };
+    return JSON.stringify(o, null, 2);
+  }, [idStr, name, type, privacyMode]);
 
   useEffect(() => {
     if (open && !wasOpen.current) {
@@ -63,6 +79,7 @@ export function CreateCampaignModal({
       setIdStr(nextId != null ? String(nextId) : "");
       setType("frontend");
       setPrivacyMode("measurement");
+      setParamsView("visual");
       setError(null);
       setSubmitting(false);
       requestAnimationFrame(() => {
@@ -200,66 +217,129 @@ export function CreateCampaignModal({
             </p>
           </div>
 
-          <fieldset className="modal-create-campaign__field">
-            <legend className="modal-create-campaign__label">Canal</legend>
-            <div className="modal-create-campaign__radios">
-              <label className="modal-create-campaign__radio">
-                <input
-                  type="radio"
-                  name="cc-type"
-                  value="frontend"
-                  checked={type === "frontend"}
-                  onChange={() => setType("frontend")}
-                  disabled={submitting}
-                />
-                <span>Frontend</span>
-              </label>
-              <label className="modal-create-campaign__radio">
-                <input
-                  type="radio"
-                  name="cc-type"
-                  value="backend"
-                  checked={type === "backend"}
-                  onChange={() => setType("backend")}
-                  disabled={submitting}
-                />
-                <span>Backend</span>
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset className="modal-create-campaign__field">
+          <fieldset className="modal-create-campaign__field segment-editor__rules-fieldset">
             <legend className="modal-create-campaign__label">
-              Confidentialité
+              Canal et confidentialité
             </legend>
-            <div className="modal-create-campaign__radios">
-              <label className="modal-create-campaign__radio">
-                <input
-                  type="radio"
-                  name="cc-privacy"
-                  value="measurement"
-                  checked={privacyMode === "measurement"}
-                  onChange={() => setPrivacyMode("measurement")}
-                  disabled={submitting}
-                />
-                <span>Mesure (consentement analytics)</span>
-              </label>
-              <label className="modal-create-campaign__radio">
-                <input
-                  type="radio"
-                  name="cc-privacy"
-                  value="technical"
-                  checked={privacyMode === "technical"}
-                  onChange={() => setPrivacyMode("technical")}
-                  disabled={submitting}
-                />
-                <span>Technique (hors consentement)</span>
-              </label>
-            </div>
-            <p className="modal-create-campaign__hint text-small">
-              Correspond au champ <code className="code-inline">privacyMode</code>{" "}
-              dans le fichier de configuration (distinct du canal frontend/backend).
+            <p className="modal-create-campaign__hint text-small segment-editor__rules-hint">
+              Le canal (<code className="code-inline">type</code>) et le mode de
+              confidentialité (<code className="code-inline">privacyMode</code>){" "}
+              sont enregistrés dans le fichier de configuration de la campagne.
             </p>
+            <div
+              className="segment-editor__rules-tabs"
+              role="tablist"
+              aria-label="Affichage des paramètres"
+            >
+              <button
+                type="button"
+                role="tab"
+                id="create-campaign-tab-form"
+                aria-selected={paramsView === "visual"}
+                aria-controls="create-campaign-panel-form"
+                className={`segment-editor__rules-tab${paramsView === "visual" ? " is-active" : ""}`}
+                onClick={() => setParamsView("visual")}
+              >
+                Formulaire
+              </button>
+              <button
+                type="button"
+                role="tab"
+                id="create-campaign-tab-json"
+                aria-selected={paramsView === "json"}
+                aria-controls="create-campaign-panel-json"
+                className={`segment-editor__rules-tab${paramsView === "json" ? " is-active" : ""}`}
+                onClick={() => setParamsView("json")}
+              >
+                JSON
+              </button>
+            </div>
+            {paramsView === "visual" ? (
+              <div
+                id="create-campaign-panel-form"
+                role="tabpanel"
+                aria-labelledby="create-campaign-tab-form"
+              >
+                <fieldset className="modal-create-campaign__field">
+                  <legend className="modal-create-campaign__label">Canal</legend>
+                  <div className="modal-create-campaign__radios">
+                    <label className="modal-create-campaign__radio">
+                      <input
+                        type="radio"
+                        name="cc-type"
+                        value="frontend"
+                        checked={type === "frontend"}
+                        onChange={() => setType("frontend")}
+                        disabled={submitting}
+                      />
+                      <span>Frontend</span>
+                    </label>
+                    <label className="modal-create-campaign__radio">
+                      <input
+                        type="radio"
+                        name="cc-type"
+                        value="backend"
+                        checked={type === "backend"}
+                        onChange={() => setType("backend")}
+                        disabled={submitting}
+                      />
+                      <span>Backend</span>
+                    </label>
+                  </div>
+                </fieldset>
+
+                <fieldset className="modal-create-campaign__field">
+                  <legend className="modal-create-campaign__label">
+                    Confidentialité
+                  </legend>
+                  <div className="modal-create-campaign__radios">
+                    <label className="modal-create-campaign__radio">
+                      <input
+                        type="radio"
+                        name="cc-privacy"
+                        value="measurement"
+                        checked={privacyMode === "measurement"}
+                        onChange={() => setPrivacyMode("measurement")}
+                        disabled={submitting}
+                      />
+                      <span>Mesure (consentement analytics)</span>
+                    </label>
+                    <label className="modal-create-campaign__radio">
+                      <input
+                        type="radio"
+                        name="cc-privacy"
+                        value="technical"
+                        checked={privacyMode === "technical"}
+                        onChange={() => setPrivacyMode("technical")}
+                        disabled={submitting}
+                      />
+                      <span>Technique (hors consentement)</span>
+                    </label>
+                  </div>
+                  <p className="modal-create-campaign__hint text-small">
+                    Correspond au champ{" "}
+                    <code className="code-inline">privacyMode</code> dans le fichier
+                    de configuration (distinct du canal frontend/backend).
+                  </p>
+                </fieldset>
+              </div>
+            ) : (
+              <div
+                className="segment-editor__json-panel"
+                id="create-campaign-panel-json"
+                role="tabpanel"
+                aria-labelledby="create-campaign-tab-json"
+              >
+                <p className="text-small muted segment-editor__json-lede">
+                  Aperçu lecture seule du corps envoyé à l’API (avec le nom et
+                  l’identifiant saisis ci-dessus) :{" "}
+                  <code className="code-inline">POST /api/campaigns</code>.
+                </p>
+                <pre className="segment-editor__json-pre" tabIndex={0}>
+                  {draftJson}
+                </pre>
+              </div>
+            )}
           </fieldset>
 
           {error ? (

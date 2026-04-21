@@ -1,11 +1,13 @@
-import { countSegmentLeaves, type SegmentConfig } from "@abtest-solution/core";
+import type { SegmentConfig } from "@abtest-solution/core";
 import type { SortDir } from "./sortTypes";
 
-export type SegmentSortKey = "id" | "name" | "rules";
+export type SegmentListRow = SegmentConfig & { campaignCount: number };
+
+export type SegmentSortKey = "id" | "name" | "campaignCount";
 
 export function compareSegments(
-  a: SegmentConfig,
-  b: SegmentConfig,
+  a: SegmentListRow,
+  b: SegmentListRow,
   key: SegmentSortKey,
   dir: SortDir,
 ): number {
@@ -15,20 +17,17 @@ export function compareSegments(
       return m * (a.id - b.id);
     case "name":
       return m * a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
-    case "rules":
-      return (
-        m *
-        (countSegmentLeaves(a.condition) - countSegmentLeaves(b.condition))
-      );
+    case "campaignCount":
+      return m * (a.campaignCount - b.campaignCount);
     default:
       return 0;
   }
 }
 
 export function sortSegments(
-  list: SegmentConfig[],
+  list: SegmentListRow[],
   key: SegmentSortKey,
   dir: SortDir,
-): SegmentConfig[] {
+): SegmentListRow[] {
   return [...list].sort((a, b) => compareSegments(a, b, key, dir));
 }

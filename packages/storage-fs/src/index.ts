@@ -319,6 +319,42 @@ const segmentFileRawSchema = z
     }
   });
 
+export type SegmentFileRawValidated = z.infer<typeof segmentFileRawSchema>;
+
+/**
+ * Valide un objet segment tel que dans `config.json` (ou corps API) avant écriture disque.
+ */
+export function parseSegmentFileForWrite(
+  raw: unknown,
+):
+  | { ok: true; data: SegmentFileRawValidated }
+  | { ok: false; error: z.ZodError<unknown> } {
+  const result = segmentFileRawSchema.safeParse(raw);
+  if (!result.success) {
+    return { ok: false, error: result.error };
+  }
+  return { ok: true, data: result.data };
+}
+
+/** JSON à écrire dans `Segments/<dossier>/config.json` (un seul de `condition` / `rules`). */
+export function segmentValidatedToDiskJson(
+  data: SegmentFileRawValidated,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    id: data.id,
+    name: data.name,
+  };
+  if (data.description !== undefined && data.description !== "") {
+    out.description = data.description;
+  }
+  if (data.condition !== undefined) {
+    out.condition = data.condition;
+  } else {
+    out.rules = data.rules;
+  }
+  return out;
+}
+
 async function readJsonFile(filePath: string): Promise<unknown | null> {
   try {
     const raw = await fs.readFile(filePath, "utf8");
