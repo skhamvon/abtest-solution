@@ -125,7 +125,7 @@ export function ConfigurationPage() {
         <code className="code-inline">consent-config.json</code> à la racine du dépôt
         données : un <strong>domaine</strong> (obligatoire) pour l’ancrage site et
         les liens de simulation ; un <strong>cookie</strong> nom / valeur pour le
-        garde-fou analytics (nom vide = pas de garde-fou).
+        cookie de consentement (nom vide = inactif).
       </p>
 
       {loading && <p className="text-small">Chargement…</p>}
@@ -162,7 +162,7 @@ export function ConfigurationPage() {
                 </strong>
               </div>
               <div style={{ marginTop: "0.35rem" }}>
-                Garde-fou cookie :{" "}
+                Cookie de consentement :{" "}
                 <strong>
                   {payload.effective.guardActive ? "actif" : "inactif"}
                 </strong>
@@ -202,7 +202,7 @@ export function ConfigurationPage() {
           <p className="section-hint">
             Comparaison stricte avec <code className="code-inline">context.cookies</code>{" "}
             sur <code className="code-inline">POST /api/evaluate</code>. Laisser le nom
-            vide pour désactiver le garde-fou.
+            vide pour désactiver le cookie de consentement.
           </p>
           <div className="field-grid" style={{ marginBottom: 0 }}>
             <label className="field-stack">
