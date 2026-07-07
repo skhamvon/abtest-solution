@@ -2,3 +2,8 @@ node_modules/
 dist/
 .__mf__temp/
 .vite/
+
+# Environnements locaux (secrets, ports personnalisés)
+.env
+.env.*
+!.env.example
