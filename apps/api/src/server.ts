@@ -1,9 +1,15 @@
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
+import dotenv from "dotenv";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+
+const apiSrcDir = path.dirname(fileURLToPath(import.meta.url));
+const abtestSolutionRoot = path.resolve(apiSrcDir, "../../..");
+dotenv.config({ path: path.join(abtestSolutionRoot, ".env") });
+dotenv.config({ path: path.join(abtestSolutionRoot, ".env.local"), override: true });
 import {
   createEngine,
   parseNumericId,
